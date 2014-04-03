@@ -601,12 +601,13 @@ void MotionDetection::DetectMotionsHU(MEImage& image)
 
 void MotionDetection::UpdateModelHU(MEImage& image, MEPixelDataType*** model)
 {
-  float CurrentHistogram[HUHistogramBins], CurrentHistogram2[HUHistogramBins];
+  float *CurrentHistogram = new float[HUHistogramBins];
+  float *CurrentHistogram2 = new float[HUHistogramBins];
   unsigned char *ImgData = image.GetImageData();
   int RowWidth = image.GetRowWidth();
   int RowStart = (HUImageHeight-1)*RowWidth;
 
-  memset(CurrentHistogram, 0, sizeof(CurrentHistogram));
+  memset(CurrentHistogram, 0, HUHistogramBins * sizeof(float));
   // Calculate the first histogram
   for (int y = HUHistogramArea-1; y >= 0; --y)
   {
@@ -654,13 +655,13 @@ void MotionDetection::UpdateModelHU(MEImage& image, MEPixelDataType*** model)
 
         for (int i = HUHistogramsPerPixel-1; i >= 0; --i)
         {
-          memcpy(PixelData->Histograms[i], CurrentHistogram, sizeof(CurrentHistogram));
+          memcpy(PixelData->Histograms[i], CurrentHistogram, HUHistogramBins * sizeof(float));
           PixelData->Weights[i] = 1.0 / HUHistogramsPerPixel;
           PixelData->BackgroundHistogram[i] = true;
         }
         PixelData->BackgroundRate = 1.0;
         PixelData->LifeCycle = 0;
-        memcpy(PixelData->PreviousHistogram, CurrentHistogram, sizeof(CurrentHistogram));
+        memcpy(PixelData->PreviousHistogram, CurrentHistogram, HUHistogramBins * sizeof(float));
 
         model[(HUImageWidth-1) / 2][y] = PixelData;
       } else {
@@ -685,11 +686,11 @@ void MotionDetection::UpdateModelHU(MEImage& image, MEPixelDataType*** model)
           // Copy the histogram data to the HU data structures
           for (int i = HUHistogramsPerPixel-1; i >= 0; --i)
           {
-            memcpy(PixelData->Histograms[i], CurrentHistogram, sizeof(CurrentHistogram));
+            memcpy(PixelData->Histograms[i], CurrentHistogram, HUHistogramBins * sizeof(float));
             PixelData->Weights[i] = 1.0 / HUHistogramsPerPixel;
             PixelData->BackgroundHistogram[i] = true;
           }
-          memcpy(PixelData->PreviousHistogram, CurrentHistogram, sizeof(CurrentHistogram));
+          memcpy(PixelData->PreviousHistogram, CurrentHistogram, HUHistogramBins * sizeof(float));
           PixelData->BackgroundRate = 1.0;
           PixelData->LifeCycle = 0;
         } else {
@@ -698,14 +699,14 @@ void MotionDetection::UpdateModelHU(MEImage& image, MEPixelDataType*** model)
 
           if (MDMode == md_DLBPHistograms)
           {
-            memcpy(PixelData->PreviousHistogram, CurrentHistogram, sizeof(CurrentHistogram));
+            memcpy(PixelData->PreviousHistogram, CurrentHistogram, HUHistogramBins * sizeof(float));
           }
         }
       }
     }
 
     // Copy the histogram
-    memcpy(CurrentHistogram2, CurrentHistogram, sizeof(CurrentHistogram));
+    memcpy(CurrentHistogram2, CurrentHistogram, HUHistogramBins * sizeof(float));
 
     // This cycle generates a column of histograms
     for (int x = HUImageWidth-2; x >= 0; --x)
@@ -791,6 +792,8 @@ void MotionDetection::UpdateModelHU(MEImage& image, MEPixelDataType*** model)
 
     }
   }
+  delete[] CurrentHistogram;
+  delete[] CurrentHistogram2;
 }
 
 
@@ -799,7 +802,7 @@ void MotionDetection::UpdateHUPixelData(MEPixelDataType* PixelData, const float 
   int MaxIndex = 0;
   float MaxValue = -1;
   bool Replace = true;
-  float IntersectionResults[HUHistogramsPerPixel];
+  float *IntersectionResults = new float[HUHistogramsPerPixel];
 
   PixelData->LifeCycle++;
   PixelData->BackgroundRate = 0.0;
@@ -893,7 +896,9 @@ void MotionDetection::UpdateHUPixelData(MEPixelDataType* PixelData, const float 
   }
 
   // Order and select the background histograms
-  float Weights[HUHistogramsPerPixel][2];
+  float **Weights = new float*[HUHistogramsPerPixel];
+  for (int i=0; i<HUHistogramsPerPixel; ++i)
+    Weights[i] = new float[2];
 
   for (int i = HUHistogramsPerPixel-1; i >= 0; --i)
   {
@@ -932,6 +937,10 @@ void MotionDetection::UpdateHUPixelData(MEPixelDataType* PixelData, const float 
   {
     PixelData->BackgroundHistogram[(int)Weights[i1][0]] = false;
   }
+  delete[] IntersectionResults;
+  for (int i=0; i<HUHistogramsPerPixel; ++i)
+      delete[] Weights[i];
+  delete[] Weights;
 }
 
 
@@ -997,7 +1006,10 @@ void MotionDetection::OpticalFlowCorrection()
                          cvTermCriteria(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS, 5, 1), 0);
 
   // Count the distances of the tracked points
-  int Distances[HUOFPointsNumber][3];
+  int **Distances = new int*[HUOFPointsNumber];
+  for (int i=0; i<HUOFPointsNumber; ++i)
+    Distances[i] = new int[3];
+  
   int DistanceMax = 0;
   for (i = 0; i < HUOFPointsNumber; ++i)
   {
@@ -1101,7 +1113,9 @@ void MotionDetection::OpticalFlowCorrection()
 
     if (!(HUOFCamMovementY == 0 && HUOFCamMovementX >= -1 && HUOFCamMovementX <= 1))
     {
-      MEPixelDataType* PreviousData[MaxX+1][MaxY+1];
+      MEPixelDataType ***PreviousData = new MEPixelDataType**[MaxX+1];
+      for (int i=0; i<MaxX+1; ++i)
+        PreviousData[i] = new MEPixelDataType*[MaxY+1];
 
       // Camera movement being happened
       for (int y = MaxY; y >= 0; --y)
@@ -1173,6 +1187,10 @@ void MotionDetection::OpticalFlowCorrection()
         }
       }
       HUOFCamMovementX = HUOFCamMovementX % 1;
+
+      for (int i=0; i<MaxX+1; ++i)
+        delete[] PreviousData[i];
+      delete[] PreviousData;
     }
   }
 
@@ -1200,6 +1218,10 @@ void MotionDetection::OpticalFlowCorrection()
   if (CurrentGray != CurrentImage.GetIplImage())
     cvReleaseImage(&CurrentGray);
   cvFree(&PointsStatus);
+
+  for (int i=0; i<HUOFPointsNumber; ++i)
+    delete[] Distances[i];
+  delete[] Distances;
 }
 
 
@@ -1226,7 +1248,9 @@ void MotionDetection::GetMotionsMaskHU(MEImage& mask_image)
   int RowWidth = mask_image.GetRowWidth();
 
   // Generate a graph about the histogram data
-  Graph::node_id Nodes[HUImageWidth / 2][HUImageHeight];
+  Graph::node_id **Nodes = new Graph::node_id*[HUImageWidth / 2];
+  for (int i=0; i<HUImageWidth / 2; ++i)
+    Nodes[i] = new Graph::node_id[HUImageHeight];
   Graph *LBPGraph = new Graph();
 
   for (int x = (HUImageWidth / 2)-1; x >= 0; --x)
@@ -1297,6 +1321,10 @@ void MotionDetection::GetMotionsMaskHU(MEImage& mask_image)
   }
   // Apply an erode operator
   mask_image.Erode(1);
+
+  for (int i=0; i<HUImageWidth / 2; ++i)
+    delete[] Nodes[i];
+  delete[] Nodes;
 }
 
 
@@ -1311,7 +1339,11 @@ void MotionDetection::SetSampleMaskHU(SampleMaskType mask_type, int desiredarea)
   // Generate a mask for computing the histograms
   IplImage *MaskImage = cvCreateImage(cvSize(HUHistogramArea, HUHistogramArea), 8, 1);
   int DesiredArea = desiredarea <= 0 ? HUHistogramBins*2 : desiredarea;
-  int CalculationMask[HUHistogramArea][HUHistogramArea];
+
+  int **CalculationMask = new int*[HUHistogramArea];
+  for (int i=0; i<HUHistogramArea; ++i)
+    CalculationMask[i] = new int[HUHistogramArea];
+
   int SquareSide = (int)MERound(sqrt(DesiredArea));
   int CircleRadius = (int)MERound(sqrt((float)DesiredArea / ME_PI_VALUE));
   int EllipseA = (int)MERound(HUHistogramArea / 2+1);
@@ -1421,5 +1453,9 @@ void MotionDetection::SetSampleMaskHU(SampleMaskType mask_type, int desiredarea)
   }
   // Freeing memory
   cvReleaseImage(&MaskImage);
+
+  for (int i=0; i<HUHistogramArea; ++i)
+    delete[] CalculationMask[i];
+  delete[] CalculationMask;
 }
 
